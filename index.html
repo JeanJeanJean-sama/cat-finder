@@ -124,11 +124,11 @@
       font-size: 1.1rem;
       font-weight: bold;
       cursor: pointer;
-      transition: filter 0.15s, transform 0.05s;
+      transition: filter 0.15s, transform 0.05s, background-color 0.2s;
       box-shadow: inset 0 0 0 2px rgba(255,255,255,0.4);
     }
 
-    /* 未開封マスの濃い色合い */
+    /* 未開封マス */
     .cell.unrevealed {
       filter: brightness(0.95);
     }
@@ -141,16 +141,34 @@
       transform: scale(0.95);
     }
 
-    /* 開封済みマス */
+    /* 開封済みマス（明るく白っぽく変化させて開放感を表現） */
     .cell.revealed {
-      filter: brightness(1.15) saturate(0.6);
+      background-color: #ffffff !important;
+      filter: none;
       cursor: default;
-      box-shadow: none;
+      box-shadow: inset 0 0 0 1px #e0d0c5;
     }
 
-    .cell.cat {
-      background-color: #ff9999 !important;
+    /* ネコを踏んでしまった（爆発）マス */
+    .cell.cat-exploded {
+      background-color: #ff6b6b !important;
+      color: #fff;
+      font-size: 1.3rem;
       filter: none;
+      animation: pop 0.2s ease-out;
+    }
+
+    /* クリア時・ゲームオーバー時に明かされた他のネコ */
+    .cell.cat-revealed {
+      background-color: #ffcdd2 !important;
+      font-size: 1.2rem;
+      filter: none;
+    }
+
+    @keyframes pop {
+      0% { transform: scale(0.8); }
+      50% { transform: scale(1.15); }
+      100% { transform: scale(1); }
     }
 
     /* 数字ごとの色分け */
@@ -205,7 +223,7 @@
       <ul>
         <li>数字は<strong>周囲8マスにいるネコの数</strong>を示します。</li>
         <li><strong>同じ色のエリアにはネコが1匹ずつ</strong>隠れています！</li>
-        <li>ネコがいると思った場所には「🐟」を置いて保護しよう。</li>
+        <li>ネコがいると思った場所には「🐟」を置こう。</li>
       </ul>
     </div>
   </div>
@@ -263,10 +281,8 @@
       boardEl.style.gridTemplateRows = `repeat(${config.size}, 1fr)`;
       boardEl.innerHTML = '';
 
-      // 1. 各エリアに1匹ずつネコを配置
       generateRegionsAndCats(config.size, config.cats);
 
-      // 2. マウント
       for (let r = 0; r < config.size; r++) {
         for (let c = 0; c < config.size; c++) {
           const cell = document.createElement('div');
@@ -291,7 +307,6 @@
     function generateRegionsAndCats(size, catCount) {
       regions = Array(size).fill(null).map(() => Array(size).fill(-1));
       
-      // ランダムにネコの位置を決定（エリアの核になる）
       let placedCats = 0;
       let seeds = [];
 
@@ -306,7 +321,6 @@
         }
       }
 
-      // エリア（色分け）の領域拡張
       let unassigned = size * size - catCount;
       let frontier = [];
 
@@ -332,7 +346,6 @@
         }
       }
 
-      // 周囲のネコ数を算出
       for (let r = 0; r < size; r++) {
         for (let c = 0; c < size; c++) {
           if (!board[r][c].hasCat) {
@@ -381,11 +394,14 @@
       }
 
       if (board[r][c].hasCat) {
+        // ネコを踏んだ瞬間の処理
         gameOver = true;
         clearInterval(timerInterval);
         resetBtn.textContent = '😿';
-        revealAllCats();
-        alert('ネコちゃんを踏んじゃった！ゲームオーバー');
+        revealAllCatsOnLoss(r, c);
+        setTimeout(() => {
+          alert('ネコちゃんを踏んじゃった！ゲームオーバー');
+        }, 100);
         return;
       }
 
@@ -409,7 +425,6 @@
         cellEl.textContent = board[r][c].count;
         cellEl.classList.add(`c-${board[r][c].count}`);
       } else {
-        // 周囲にネコがいない場合は連鎖オープン
         for (let dr = -1; dr <= 1; dr++) {
           for (let dc = -1; dc <= 1; dc++) {
             if (dr !== 0 || dc !== 0) {
@@ -440,14 +455,21 @@
       catsLeftEl.textContent = String(flagsLeft).padStart(2, '0');
     }
 
-    function revealAllCats() {
+    function revealAllCatsOnLoss(explodedRow, explodedCol) {
       const config = CONFIGS[currentDiff];
       for (let r = 0; r < config.size; r++) {
         for (let c = 0; c < config.size; c++) {
-          if (board[r][c].hasCat) {
-            const cellEl = boardEl.children[r * config.size + c];
+          const cellEl = boardEl.children[r * config.size + c];
+          cellEl.classList.remove('unrevealed');
+          
+          if (r === explodedRow && c === explodedCol) {
+            // 踏んでしまった場所のネコ
+            cellEl.textContent = '🙀';
+            cellEl.classList.add('cat-exploded');
+          } else if (board[r][c].hasCat) {
+            // その他の隠れていたネコ
             cellEl.textContent = '😸';
-            cellEl.classList.add('cat');
+            cellEl.classList.add('cat-revealed');
           }
         }
       }
