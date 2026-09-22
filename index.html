@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ネコさがし 🐱 - エリアパズル</title>
+  <title>ネコさがし 🐱 - エリアマインスイーパー</title>
   <style>
     * {
       box-sizing: border-box;
@@ -107,7 +107,7 @@
 
     #board {
       display: grid;
-      gap: 3px;
+      gap: 4px;
       margin: 10px 0;
       background-color: #d8c2b5;
       padding: 6px;
@@ -121,35 +121,43 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.3rem;
+      font-size: 1.1rem;
+      font-weight: bold;
       cursor: pointer;
-      transition: opacity 0.15s, transform 0.05s;
+      transition: filter 0.15s, transform 0.05s;
+      box-shadow: inset 0 0 0 2px rgba(255,255,255,0.4);
+    }
+
+    /* 未開封マスの濃い色合い */
+    .cell.unrevealed {
+      filter: brightness(0.95);
+    }
+
+    .cell.unrevealed:hover {
+      filter: brightness(1.05);
     }
 
     .cell:active {
       transform: scale(0.95);
     }
 
-    .cell.cat-placed {
-      font-size: 1.4rem;
+    /* 開封済みマス */
+    .cell.revealed {
+      filter: brightness(1.15) saturate(0.6);
+      cursor: default;
+      box-shadow: none;
     }
 
-    .cell.x-placed {
-      color: #b0a095;
-      font-size: 1.1rem;
-      font-weight: bold;
-    }
-
-    .cell.error {
-      animation: shake 0.3s ease-in-out;
+    .cell.cat {
       background-color: #ff9999 !important;
+      filter: none;
     }
 
-    @keyframes shake {
-      0%, 100% { transform: translateX(0); }
-      20%, 60% { transform: translateX(-3px); }
-      40%, 80% { transform: translateX(3px); }
-    }
+    /* 数字ごとの色分け */
+    .c-1 { color: #1e88e5; }
+    .c-2 { color: #43a047; }
+    .c-3 { color: #e53935; }
+    .c-4 { color: #8e24aa; }
 
     .rules-card {
       margin-top: 15px;
@@ -171,145 +179,175 @@
 <body>
 
   <h1>🐾 ネコさがし 🐱</h1>
-  <p class="subtitle">色分けエリアにネコちゃんが1匹ずつ隠れているよ！</p>
+  <p class="subtitle">色分けエリアをヒントにネコちゃんを避けて開けよう！</p>
 
   <div class="game-card">
     <div class="status-bar">
-      <div class="status-item">😸 <span id="cats-found">0/6</span></div>
+      <div class="status-item">🐟 <span id="cats-left">08</span></div>
       <button class="reset-btn" id="reset-btn">😸</button>
       <div class="status-item">⏱️ <span id="timer">000</span></div>
     </div>
 
     <div class="controls">
-      <button class="btn active" onclick="setDifficulty(6)">6×6 (6匹)</button>
-      <button class="btn" onclick="setDifficulty(7)">7×7 (7匹)</button>
-      <button class="btn" onclick="setDifficulty(8)">8×8 (8匹)</button>
+      <button class="btn active" onclick="setDifficulty('easy')">かんたん (8x8)</button>
+      <button class="btn" onclick="setDifficulty('medium')">ふつう (10x10)</button>
     </div>
 
     <div class="controls">
-      <button class="btn active" id="mode-cat" onclick="setMode('cat')">😸 ネコを置く</button>
-      <button class="btn" id="mode-x" onclick="setMode('x')">❌ バツを置く</button>
+      <button class="btn active" id="mode-open" onclick="setMode('open')">🔍 ひらく</button>
+      <button class="btn" id="mode-flag" onclick="setMode('flag')">🐟 おさかな</button>
     </div>
 
     <div id="board"></div>
 
     <div class="rules-card">
-      <strong>【あそびかた】</strong>
+      <strong>【ルール】</strong>
       <ul>
-        <li>同じ色のエリアに<strong>ネコは1匹だけ</strong></li>
-        <li>各タテ列・ヨコ列にも<strong>ネコは1匹だけ</strong></li>
-        <li>ネコ同士は<strong>斜めも含めて隣り合えない</strong></li>
+        <li>数字は<strong>周囲8マスにいるネコの数</strong>を示します。</li>
+        <li><strong>同じ色のエリアにはネコが1匹ずつ</strong>隠れています！</li>
+        <li>ネコがいると思った場所には「🐟」を置いて保護しよう。</li>
       </ul>
-      <p style="margin-top:4px; text-align:center; color:#a09085;">※右クリックで「❌」が置けます（スマホはボタン切り替え）</p>
     </div>
   </div>
 
   <script>
-    // エリア用のパステルカラーパレット
     const AREA_COLORS = [
       '#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF',
       '#E8AEFF', '#FFC6FF', '#C4FAF8', '#F3FFE3', '#FFE5EC'
     ];
 
-    let gridSize = 6;
-    let mode = 'cat'; // 'cat' or 'x'
-    let solution = []; // 正解のネコ位置 Matrix[r][c] = boolean
-    let regions = [];  // 各マスの所属エリア Matrix[r][c] = regionId
-    let userState = []; // プレイヤーの入力 Matrix[r][c] = 'empty' | 'cat' | 'x'
+    const CONFIGS = {
+      easy: { size: 8, cats: 8 },
+      medium: { size: 10, cats: 10 }
+    };
+
+    let currentDiff = 'easy';
+    let mode = 'open';
+    let board = [];
+    let regions = [];
+    let revealedCount = 0;
+    let flagsLeft = 0;
+    let gameOver = false;
+    let gameStarted = false;
     let timerInterval = null;
     let time = 0;
-    let gameStarted = false;
-    let gameOver = false;
 
     const boardEl = document.getElementById('board');
-    const catsFoundEl = document.getElementById('cats-found');
+    const catsLeftEl = document.getElementById('cats-left');
     const timerEl = document.getElementById('timer');
     const resetBtn = document.getElementById('reset-btn');
 
-    // 問題自動生成ロジック（バックトラック法）
-    function generatePuzzle(size) {
-      gridSize = size;
-      let valid = false;
+    function initGame() {
+      clearInterval(timerInterval);
+      time = 0;
+      timerEl.textContent = '000';
+      gameStarted = false;
+      gameOver = false;
+      revealedCount = 0;
+      resetBtn.textContent = '😸';
 
-      while (!valid) {
-        // 1. 各行・各列・隣接条件を満たすネコの配置を作成
-        solution = Array(size).fill(null).map(() => Array(size).fill(false));
-        const colsUsed = Array(size).fill(false);
+      const config = CONFIGS[currentDiff];
+      flagsLeft = config.cats;
+      catsLeftEl.textContent = String(flagsLeft).padStart(2, '0');
 
-        function placeCatRow(r) {
-          if (r === size) return true;
-          const cols = Array.from({length: size}, (_, i) => i).sort(() => Math.random() - 0.5);
+      board = Array(config.size).fill(null).map(() => 
+        Array(config.size).fill(null).map(() => ({
+          hasCat: false,
+          revealed: false,
+          flagged: false,
+          count: 0
+        }))
+      );
 
-          for (let c of cols) {
-            if (colsUsed[c]) continue;
-            // 8方向のチェック
-            let neighborHasCat = false;
+      boardEl.style.gridTemplateColumns = `repeat(${config.size}, 1fr)`;
+      boardEl.style.gridTemplateRows = `repeat(${config.size}, 1fr)`;
+      boardEl.innerHTML = '';
+
+      // 1. 各エリアに1匹ずつネコを配置
+      generateRegionsAndCats(config.size, config.cats);
+
+      // 2. マウント
+      for (let r = 0; r < config.size; r++) {
+        for (let c = 0; c < config.size; c++) {
+          const cell = document.createElement('div');
+          cell.classList.add('cell', 'unrevealed');
+          cell.dataset.row = r;
+          cell.dataset.col = c;
+          
+          const regionId = regions[r][c];
+          cell.style.backgroundColor = AREA_COLORS[regionId % AREA_COLORS.length];
+
+          cell.addEventListener('click', () => handleCellClick(r, c));
+          cell.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            toggleFlag(r, c);
+          });
+
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    function generateRegionsAndCats(size, catCount) {
+      regions = Array(size).fill(null).map(() => Array(size).fill(-1));
+      
+      // ランダムにネコの位置を決定（エリアの核になる）
+      let placedCats = 0;
+      let seeds = [];
+
+      while (placedCats < catCount) {
+        const r = Math.floor(Math.random() * size);
+        const c = Math.floor(Math.random() * size);
+        if (!board[r][c].hasCat) {
+          board[r][c].hasCat = true;
+          regions[r][c] = placedCats;
+          seeds.push({r, c, id: placedCats});
+          placedCats++;
+        }
+      }
+
+      // エリア（色分け）の領域拡張
+      let unassigned = size * size - catCount;
+      let frontier = [];
+
+      seeds.forEach(s => {
+        const neighbors = getNeighbors(s.r, s.c, size);
+        neighbors.forEach(n => frontier.push({...n, id: s.id}));
+      });
+
+      while (unassigned > 0 && frontier.length > 0) {
+        const idx = Math.floor(Math.random() * frontier.length);
+        const current = frontier.splice(idx, 1)[0];
+
+        if (regions[current.r][current.c] === -1) {
+          regions[current.r][current.c] = current.id;
+          unassigned--;
+
+          const neighbors = getNeighbors(current.r, current.c, size);
+          neighbors.forEach(n => {
+            if (regions[n.r][n.c] === -1) {
+              frontier.push({...n, id: current.id});
+            }
+          });
+        }
+      }
+
+      // 周囲のネコ数を算出
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          if (!board[r][c].hasCat) {
+            let count = 0;
             for (let dr = -1; dr <= 1; dr++) {
               for (let dc = -1; dc <= 1; dc++) {
                 const nr = r + dr, nc = c + dc;
                 if (nr >= 0 && nr < size && nc >= 0 && nc < size) {
-                  if (solution[nr][nc]) neighborHasCat = true;
+                  if (board[nr][nc].hasCat) count++;
                 }
               }
             }
-            if (neighborHasCat) continue;
-
-            solution[r][c] = true;
-            colsUsed[c] = true;
-
-            if (placeCatRow(r + 1)) return true;
-
-            solution[r][c] = false;
-            colsUsed[c] = false;
-          }
-          return false;
-        }
-
-        if (!placeCatRow(0)) continue;
-
-        // 2. 正解位置をベースに連結エリア（色分け）をランダム生成
-        regions = Array(size).fill(null).map(() => Array(size).fill(-1));
-        
-        // 正解の各ネコマスを各エリアの種（シード）にする
-        let seeds = [];
-        let catCount = 0;
-        for (let r = 0; r < size; r++) {
-          for (let c = 0; c < size; c++) {
-            if (solution[r][c]) {
-              regions[r][c] = catCount;
-              seeds.push({r, c, id: catCount});
-              catCount++;
-            }
+            board[r][c].count = count;
           }
         }
-
-        // 領域拡張（BFS的ランダム拡張）
-        let unassigned = size * size - size;
-        let frontier = [];
-
-        seeds.forEach(s => {
-          const neighbors = getNeighbors(s.r, s.c, size);
-          neighbors.forEach(n => frontier.push({...n, id: s.id}));
-        });
-
-        while (unassigned > 0 && frontier.length > 0) {
-          const idx = Math.floor(Math.random() * frontier.length);
-          const current = frontier.splice(idx, 1)[0];
-
-          if (regions[current.r][current.c] === -1) {
-            regions[current.r][current.c] = current.id;
-            unassigned--;
-
-            const neighbors = getNeighbors(current.r, current.c, size);
-            neighbors.forEach(n => {
-              if (regions[n.r][n.c] === -1) {
-                frontier.push({...n, id: current.id});
-              }
-            });
-          }
-        }
-
-        if (unassigned === 0) valid = true;
       }
     }
 
@@ -322,44 +360,6 @@
       return list;
     }
 
-    function initGame() {
-      clearInterval(timerInterval);
-      time = 0;
-      timerEl.textContent = '000';
-      gameStarted = false;
-      gameOver = false;
-      resetBtn.textContent = '😸';
-
-      generatePuzzle(gridSize);
-
-      userState = Array(gridSize).fill(null).map(() => Array(gridSize).fill('empty'));
-      catsFoundEl.textContent = `0/${gridSize}`;
-
-      boardEl.style.gridTemplateColumns = `repeat(${gridSize}, 1fr)`;
-      boardEl.style.gridTemplateRows = `repeat(${gridSize}, 1fr)`;
-      boardEl.innerHTML = '';
-
-      for (let r = 0; r < gridSize; r++) {
-        for (let c = 0; c < gridSize; c++) {
-          const cell = document.createElement('div');
-          cell.classList.add('cell');
-          cell.dataset.row = r;
-          cell.dataset.col = c;
-          
-          const regionId = regions[r][c];
-          cell.style.backgroundColor = AREA_COLORS[regionId % AREA_COLORS.length];
-
-          cell.addEventListener('click', () => handleCellClick(r, c));
-          cell.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            toggleX(r, c);
-          });
-
-          boardEl.appendChild(cell);
-        }
-      }
-    }
-
     function startTimer() {
       timerInterval = setInterval(() => {
         time++;
@@ -368,97 +368,105 @@
     }
 
     function handleCellClick(r, c) {
-      if (gameOver) return;
+      if (gameOver || board[r][c].flagged) return;
+
+      if (mode === 'flag') {
+        toggleFlag(r, c);
+        return;
+      }
 
       if (!gameStarted) {
         gameStarted = true;
         startTimer();
       }
 
-      if (mode === 'cat') {
-        toggleCat(r, c);
-      } else {
-        toggleX(r, c);
+      if (board[r][c].hasCat) {
+        gameOver = true;
+        clearInterval(timerInterval);
+        resetBtn.textContent = '😿';
+        revealAllCats();
+        alert('ネコちゃんを踏んじゃった！ゲームオーバー');
+        return;
       }
 
-      checkGameStatus();
+      revealCell(r, c);
+      checkWin();
     }
 
-    function toggleCat(r, c) {
-      if (userState[r][c] === 'cat') {
-        userState[r][c] = 'empty';
+    function revealCell(r, c) {
+      const config = CONFIGS[currentDiff];
+      if (r < 0 || r >= config.size || c < 0 || c >= config.size) return;
+      if (board[r][c].revealed || board[r][c].flagged) return;
+
+      board[r][c].revealed = true;
+      revealedCount++;
+
+      const cellEl = boardEl.children[r * config.size + c];
+      cellEl.classList.remove('unrevealed');
+      cellEl.classList.add('revealed');
+
+      if (board[r][c].count > 0) {
+        cellEl.textContent = board[r][c].count;
+        cellEl.classList.add(`c-${board[r][c].count}`);
       } else {
-        userState[r][c] = 'cat';
-      }
-      updateCellDisplay(r, c);
-    }
-
-    function toggleX(r, c) {
-      if (userState[r][c] === 'x') {
-        userState[r][c] = 'empty';
-      } else {
-        userState[r][c] = 'x';
-      }
-      updateCellDisplay(r, c);
-    }
-
-    function updateCellDisplay(r, c) {
-      const cellEl = boardEl.children[r * gridSize + c];
-      cellEl.classList.remove('cat-placed', 'x-placed');
-
-      if (userState[r][c] === 'cat') {
-        cellEl.textContent = '😸';
-        cellEl.classList.add('cat-placed');
-      } else if (userState[r][c] === 'x') {
-        cellEl.textContent = '✖';
-        cellEl.classList.add('x-placed');
-      } else {
-        cellEl.textContent = '';
-      }
-
-      // カウント更新
-      let count = 0;
-      for (let i = 0; i < gridSize; i++) {
-        for (let j = 0; j < gridSize; j++) {
-          if (userState[i][j] === 'cat') count++;
-        }
-      }
-      catsFoundEl.textContent = `${count}/${gridSize}`;
-    }
-
-    function checkGameStatus() {
-      let placedCount = 0;
-      for (let r = 0; r < gridSize; r++) {
-        for (let c = 0; c < gridSize; c++) {
-          if (userState[r][c] === 'cat') placedCount++;
-        }
-      }
-
-      if (placedCount === gridSize) {
-        // 条件チェック
-        let isCorrect = true;
-
-        for (let r = 0; r < gridSize; r++) {
-          for (let c = 0; c < gridSize; c++) {
-            if (userState[r][c] === 'cat' && !solution[r][c]) {
-              isCorrect = false;
+        // 周囲にネコがいない場合は連鎖オープン
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            if (dr !== 0 || dc !== 0) {
+              revealCell(r + dr, c + dc);
             }
           }
         }
+      }
+    }
 
-        if (isCorrect) {
-          gameOver = true;
-          clearInterval(timerInterval);
-          resetBtn.textContent = '😻';
-          setTimeout(() => {
-            alert(`🎉 クリア！お見事です！\nタイム: ${time}秒`);
-          }, 100);
+    function toggleFlag(r, c) {
+      if (gameOver || board[r][c].revealed) return;
+
+      const config = CONFIGS[currentDiff];
+      const cell = board[r][c];
+      const cellEl = boardEl.children[r * config.size + c];
+
+      if (cell.flagged) {
+        cell.flagged = false;
+        cellEl.textContent = '';
+        flagsLeft++;
+      } else {
+        cell.flagged = true;
+        cellEl.textContent = '🐟';
+        flagsLeft--;
+      }
+
+      catsLeftEl.textContent = String(flagsLeft).padStart(2, '0');
+    }
+
+    function revealAllCats() {
+      const config = CONFIGS[currentDiff];
+      for (let r = 0; r < config.size; r++) {
+        for (let c = 0; c < config.size; c++) {
+          if (board[r][c].hasCat) {
+            const cellEl = boardEl.children[r * config.size + c];
+            cellEl.textContent = '😸';
+            cellEl.classList.add('cat');
+          }
         }
       }
     }
 
-    function setDifficulty(size) {
-      gridSize = size;
+    function checkWin() {
+      const config = CONFIGS[currentDiff];
+      if (revealedCount === (config.size * config.size - config.cats)) {
+        gameOver = true;
+        clearInterval(timerInterval);
+        resetBtn.textContent = '😻';
+        setTimeout(() => {
+          alert(`🎉 クリアおめでとう！ タイム: ${time}秒`);
+        }, 100);
+      }
+    }
+
+    function setDifficulty(diff) {
+      currentDiff = diff;
       document.querySelectorAll('.controls:nth-of-type(1) .btn').forEach(btn => btn.classList.remove('active'));
       event.target.classList.add('active');
       initGame();
@@ -466,8 +474,8 @@
 
     function setMode(m) {
       mode = m;
-      document.getElementById('mode-cat').classList.toggle('active', mode === 'cat');
-      document.getElementById('mode-x').classList.toggle('active', mode === 'x');
+      document.getElementById('mode-open').classList.toggle('active', mode === 'open');
+      document.getElementById('mode-flag').classList.toggle('active', mode === 'flag');
     }
 
     resetBtn.addEventListener('click', initGame);
